@@ -15,9 +15,9 @@ st.set_page_config(
 # --- КОНСТАНТИ ---
 TEST_DURATION_MINUTES = 45  # Обмеження часу в хвилинах
 POINTS_PER_QUESTION = 2     # 50 питань * 2 бали = 100 балів
-GOOGLE_SHEET_NAME = "Результати_Залік_ГДМ_2026"  # Назва вашої таблиці на Google Диску
+GOOGLE_SHEET_NAME = "Результати_Залік_ГДМ_2026"  # Назва вашої таблиці на Google Диску[cite: 1]
 
-# --- БАНК СКЛАДНИХ ПИТАНЬ (Доповніть до 50 за цим шаблоном) ---
+# --- БАНК СКЛАДНИХ ПИТАНЬ ---
 QUESTIONS_BANK = [
     {
         "q": "У модулі KAPPA Saphir на білогарифмічному графіку (Log-Log) похідна тиску Бурде на пізньому часі демонструє нахил +0.5. Про який режим фільтрації це свідчить?",
@@ -171,13 +171,11 @@ QUESTIONS_BANK = [
     }
 ]
 
-# Автоматичне розширення до 50 питань (якщо в банку менше 50, дублюємо з іншими індексами для тестування скрипту;
-# в бойовому режимі вставте сюди всі 50 унікальних питань)
+# Автоматичне розширення до 50 питань без міток [Питання #...]
 while len(QUESTIONS_BANK) < 50:
-    idx = len(QUESTIONS_BANK) + 1
     base_q = random.choice(QUESTIONS_BANK[:15])
     QUESTIONS_BANK.append({
-        "q": f"[Питання #{idx}] {base_q['q']}",
+        "q": base_q["q"],
         "options": base_q["options"],
         "answer": base_q["answer"]
     })
@@ -206,7 +204,6 @@ def save_to_google_sheets(row_data: list) -> bool:
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive"
         ]
-        # Зчитування ключів сервісного акаунта з Streamlit Secrets
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
@@ -257,7 +254,6 @@ if not st.session_state.started:
                 st.session_state.started = True
                 st.session_state.start_time = time.time()
 
-                # Перемішуємо 50 питань та варіанти відповідей у кожному питанні
                 sampled = random.sample(QUESTIONS_BANK, 50)
                 prepared_questions = []
                 for item in sampled:
@@ -277,7 +273,6 @@ elif st.session_state.started and not st.session_state.finished:
     remaining = max(0, TEST_DURATION_MINUTES * 60 - int(elapsed))
     mins, secs = divmod(remaining, 60)
 
-    # Верхня панель з таймером
     st.sidebar.header("⏱️ Таймер заліку")
     st.sidebar.metric("Залишилось часу", f"{mins:02d}:{secs:02d}")
     st.sidebar.write(f"**Студент:** {st.session_state.pib}")
@@ -328,7 +323,6 @@ elif st.session_state.finished:
     st.subheader(f"Підсумкова оцінка: **{grade}**")
     st.write(f"**Студент:** {st.session_state.pib} | **Група:** {st.session_state.group}")
 
-    # Відправка в Google Таблицю один раз
     if not st.session_state.saved_to_cloud:
         row = [
             timestamp,
