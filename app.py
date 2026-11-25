@@ -15,7 +15,7 @@ st.set_page_config(
 # --- КОНСТАНТИ ---
 TEST_DURATION_MINUTES = 45  # Обмеження часу в хвилинах
 POINTS_PER_QUESTION = 2     # 50 питань * 2 бали = 100 балів
-GOOGLE_SHEET_NAME = "Результати_Залік_ГДМ_2026"  # Назва вашої таблиці на Google Диску[cite: 1]
+GOOGLE_SHEET_NAME = "Результати_Залік_ГДМ_2026"
 
 # --- БАНК СКЛАДНИХ ПИТАНЬ ---
 QUESTIONS_BANK = [
@@ -224,6 +224,8 @@ if "start_time" not in st.session_state:
     st.session_state.start_time = None
 if "questions" not in st.session_state:
     st.session_state.questions = []
+if "current_q" not in st.session_state:
+    st.session_state.current_q = 0
 if "user_answers" not in st.session_state:
     st.session_state.user_answers = {}
 if "saved_to_cloud" not in st.session_state:
@@ -237,6 +239,7 @@ if not st.session_state.started:
     * Кількість запитань: **50** (по **2 бали** за кожну правильну відповідь).
     * Максимальна сума балів: **100 балів**.
     * Обмеження часу: **{TEST_DURATION_MINUTES} хвилин**. Після завершення часу відповіді фіксуються автоматично.
+    * На екрані відображається **одне запитання за раз**.
     * Тематика: чисельні методи фільтрації, PVT, ОФП, адаптація моделей, **KAPPA Workstation (Saphir, Rubis)**, **tNavigator**.
     """)
 
@@ -253,6 +256,8 @@ if not st.session_state.started:
                 st.session_state.group = group.strip().upper()
                 st.session_state.started = True
                 st.session_state.start_time = time.time()
+                st.session_state.current_q = 0
+                st.session_state.user_answers = {}
 
                 sampled = random.sample(QUESTIONS_BANK, 50)
                 prepared_questions = []
@@ -267,16 +272,23 @@ if not st.session_state.started:
                 st.session_state.questions = prepared_questions
                 st.rerun()
 
-# --- ЕКРАН 2: ПРОХОДЖЕННЯ ТЕСТУ ---
+# --- ЕКРАН 2: ПРОХОДЖЕННЯ ТЕСТУ (ПО ОДНОМУ ПИТАННЮ) ---
 elif st.session_state.started and not st.session_state.finished:
     elapsed = time.time() - st.session_state.start_time
     remaining = max(0, TEST_DURATION_MINUTES * 60 - int(elapsed))
     mins, secs = divmod(remaining, 60)
 
+    total_q = len(st.session_state.questions)
+    idx = st.session_state.current_q
+    item = st.session_state.questions[idx]
+
+    answered_count = sum(1 for v in st.session_state.user_answers.values() if v is not None)
+
     st.sidebar.header("⏱️ Таймер заліку")
     st.sidebar.metric("Залишилось часу", f"{mins:02d}:{secs:02d}")
     st.sidebar.write(f"**Студент:** {st.session_state.pib}")
     st.sidebar.write(f"**Група:** {st.session_state.group}")
+    st.sidebar.write(f"**Відповідей надано:** {answered_count} з {total_q}")
 
     if remaining <= 0:
         st.session_state.finished = True
@@ -284,22 +296,40 @@ elif st.session_state.started and not st.session_state.finished:
 
     st.title("Тестові завдання")
     st.info(f"⏳ Залишилось часу: **{mins:02d} хв {secs:02d} с**. Не оновлюйте сторінку браузера!")
+    st.progress((idx + 1) / total_q, text=f"Питання {idx + 1} з {total_q}")
 
-    for i, item in enumerate(st.session_state.questions):
-        st.markdown(f"**{i + 1}. {item['q']}**")
-        choice = st.radio(
-            label=f"Оберіть відповідь на питання {i + 1}:",
-            options=item["options"],
-            index=None,
-            key=f"q_{i}",
-            label_visibility="collapsed"
-        )
-        st.session_state.user_answers[i] = choice
-        st.divider()
+    st.markdown(f"### {idx + 1}. {item['q']}")
 
-    if st.button("✅ Завершити тест та надіслати результати", type="primary"):
-        st.session_state.finished = True
-        st.rerun()
+    saved_choice = st.session_state.user_answers.get(idx)
+    default_index = item["options"].index(saved_choice) if saved_choice in item["options"] else None
+
+    choice = st.radio(
+        label=f"Оберіть відповідь на питання {idx + 1}:",
+        options=item["options"],
+        index=default_index,
+        key=f"q_{idx}",
+        label_visibility="collapsed"
+    )
+    st.session_state.user_answers[idx] = choice
+
+    st.divider()
+
+    col_prev, col_next, col_finish = st.columns([1, 1, 1.4])
+
+    with col_prev:
+        if st.button("⬅️ Попереднє", disabled=(idx == 0), use_container_width=True):
+            st.session_state.current_q = max(0, idx - 1)
+            st.rerun()
+
+    with col_next:
+        if st.button("Наступне ➡️", disabled=(idx >= total_q - 1), use_container_width=True):
+            st.session_state.current_q = min(total_q - 1, idx + 1)
+            st.rerun()
+
+    with col_finish:
+        if st.button("✅ Завершити тест та надіслати", type="primary", use_container_width=True):
+            st.session_state.finished = True
+            st.rerun()
 
 # --- ЕКРАН 3: РЕЗУЛЬТАТИ ТА ЕКСПОРТ У GOOGLE SHEETS ---
 elif st.session_state.finished:
@@ -318,7 +348,7 @@ elif st.session_state.finished:
     col1, col2, col3 = st.columns(3)
     col1.metric("Набрано балів", f"{total_score} / 100")
     col2.metric("Оцінка ECTS", grade.split()[0])
-    col3.metric("Правильних відповідей", f"{correct_count} з 50")
+    col3.metric("Правильних відповідей", f"{correct_count} з {len(st.session_state.questions)}")
 
     st.subheader(f"Підсумкова оцінка: **{grade}**")
     st.write(f"**Студент:** {st.session_state.pib} | **Група:** {st.session_state.group}")
